@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>D3.js Interactive Grouped Bar Chart (Single File)</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f4f9;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .chart-container {
+            display: flex;
+            justify-content: center;
+            margin-top: 30px;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            padding: 8px;
+            background: #333;
+            color: white;
+            border: 0px;
+            border-radius: 4px;
+            pointer-events: none;
+            font-size: 12px;
+            line-height: 1.4;
+            opacity: 0;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        .axis text {
+            font-size: 10px;
+        }
+        .chart-title {
+            font-size: 16px;
+            font-weight: bold;
+            text-anchor: middle;
+        }
+    </style>
+</head>
+<body>
+    <h1>Standard Accuracy (Std Acc) by Approach and Dataset</h1>
+    <p style="text-align: center; font-style: italic;">(Interaction: Hover for details; Transition: Bars grow on load)</p>
+    
+    <div class="chart-container">
+        <div id="chart-area"></div>
+    </div>
+
+    <div class="tooltip" id="tooltip-container"></div>
+
+    <script>
+        // ---------------------------------------------------
+        // EMBEDDED DATA (Original std_acc_data.json content)
+        // ---------------------------------------------------
+        const jsonString = `[
+            {"Approach":"ERM","Dataset":"CIFAR100","Std_Acc":81.03},
+            {"Approach":"DA","Dataset":"CIFAR10","Std_Acc":94.21},
+            {"Approach":"PGDT","Dataset":"SVHN","Std_Acc":91.19},
+            {"Approach":"TRADES","Dataset":"MNIST","Std_Acc":99.1},
+            {"Approach":"MART","Dataset":"CIFAR100","Std_Acc":63.68},
+            {"Approach":"RS","Dataset":"CIFAR10","Std_Acc":89.45},
+            {"Approach":"IBP","Dataset":"SVHN","Std_Acc":73.09},
+            {"Approach":"PRL","Dataset":"MNIST","Std_Acc":99.32},
+            {"Approach":"TandT","Dataset":"CIFAR100","Std_Acc":65.56},
+            {"Approach":"ERM","Dataset":"CIFAR10","Std_Acc":94.85},
+            {"Approach":"DA","Dataset":"CIFAR100","Std_Acc":78.27},
+            {"Approach":"PGDT","Dataset":"CIFAR10","Std_Acc":84.38},
+            {"Approach":"TRADES","Dataset":"SVHN","Std_Acc":86.16},
+            {"Approach":"MART","Dataset":"MNIST","Std_Acc":98.94},
+            {"Approach":"RS","Dataset":"CIFAR100","Std_Acc":56.87},
+            {"Approach":"IBP","Dataset":"CIFAR10","Std_Acc":48.4},
+            {"Approach":"PRL","Dataset":"SVHN","Std_Acc":92.0},
+            {"Approach":"TandT","Dataset":"MNIST","Std_Acc":99.32},
+            {"Approach":"ERM","Dataset":"SVHN","Std_Acc":94.44},
+            {"Approach":"DA","Dataset":"MNIST","Std_Acc":99.42},
+            {"Approach":"PGDT","Dataset":"CIFAR100","Std_Acc":64.35},
+            {"Approach":"TRADES","Dataset":"CIFAR10","Std_Acc":80.42},
+            {"Approach":"MART","Dataset":"SVHN","Std_Acc":90.2},
+            {"Approach":"RS","Dataset":"MNIST","Std_Acc":97.16},
+            {"Approach":"IBP","Dataset":"CIFAR100","Std_Acc":39.45},
+            {"Approach":"PRL","Dataset":"CIFAR10","Std_Acc":93.82},
+            {"Approach":"TandT","Dataset":"SVHN","Std_Acc":94.79},
+            {"Approach":"ERM","Dataset":"MNIST","Std_Acc":99.37},
+            {"Approach":"DA","Dataset":"SVHN","Std_Acc":94.69},
+            {"Approach":"PGDT","Dataset":"MNIST","Std_Acc":99.16},
+            {"Approach":"TRADES","Dataset":"MNIST","Std_Acc":99.1},
+            {"Approach":"MART","Dataset":"CIFAR10","Std_Acc":81.54},
+            {"Approach":"RS","Dataset":"SVHN","Std_Acc":88.35},
+            {"Approach":"IBP","Dataset":"MNIST","Std_Acc":97.78},
+            {"Approach":"PRL","Dataset":"CIFAR100","Std_Acc":64.89},
+            {"Approach":"TandT","Dataset":"CIFAR10","Std_Acc":94.23}
+        ]`;
+        
+        // Parse the JSON string into a JavaScript array/object
+        const data = JSON.parse(jsonString);
+
+        // Set up chart dimensions
+        const margin = {top: 50, right: 120, bottom: 80, left: 60};
+        const width = 850 - margin.left - margin.right;
+        const height = 550 - margin.top - margin.bottom;
+
+        // ---------------------------------------------------
+        // 1. Setup SVG Canvas
+        // ---------------------------------------------------
+
+        const svg = d3.select("#chart-area")
+            .append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // Add chart title
+        svg.append("text")
+            .attr("class", "chart-title")
+            .attr("x", width / 2)
+            .attr("y", -20)
+            .text("Standard Accuracy (Std Acc) of ML Approaches on Various Datasets");
+
+        // Get the tooltip element
+        const tooltip = d3.select("#tooltip-container");
+
+        // ---------------------------------------------------
+        // 2. Process Data and Define Scales
+        // ---------------------------------------------------
+        
+        // Extract unique Approach (groups) and Dataset (inner bars)
+        const approaches = Array.from(new Set(data.map(d => d.Approach)));
+        const datasets = Array.from(new Set(data.map(d => d.Dataset)));
+
+        // X0 Scale: for groups (Approach)
+        const x0 = d3.scaleBand()
+            .domain(approaches)
+            .range([0, width])
+            .paddingInner(0.1);
+
+        // X1 Scale: for inner bars (Dataset)
+        const x1 = d3.scaleBand()
+            .domain(datasets)
+            .range([0, x0.bandwidth()])
+            .padding(0.05);
+
+        // Y Scale: for accuracy (Std_Acc), from 0 to 100
+        const y = d3.scaleLinear()
+            .domain([0, 100])
+            .range([height, 0]);
+
+        // Color Scale: for each Dataset
+        const colorScale = d3.scaleOrdinal()
+            .domain(datasets)
+            .range(d3.schemeCategory10);
+
+        // ---------------------------------------------------
+        // 3. Draw Axes
+        // ---------------------------------------------------
+
+        // Draw X Axis
+        svg.append("g")
+            .attr("class", "x axis")
+            .attr("transform", `translate(0,${height})`)
+            .call(d3.axisBottom(x0).tickSizeOuter(0))
+            .selectAll("text")
+            .attr("transform", "rotate(-45)")
+            .style("text-anchor", "end");
+            
+        // X Axis Label
+        svg.append("text")
+            .attr("class", "axis-label")
+            .attr("x", width / 2)
+            .attr("y", height + margin.bottom - 10)
+            .style("text-anchor", "middle")
+            .text("Machine Learning Approach");
+
+        // Draw Y Axis
+        svg.append("g")
+            .attr("class", "y axis")
+            .call(d3.axisLeft(y).tickFormat(d => `${d}%`));
+            
+        // Y Axis Label
+        svg.append("text")
+            .attr("class", "axis-label")
+            .attr("transform", "rotate(-90)")
+            .attr("y", 0 - margin.left + 15)
+            .attr("x", 0 - (height / 2))
+            .style("text-anchor", "middle")
+            .text("Standard Accuracy (Std Acc)");
+
+        // ---------------------------------------------------
+        // 4. Draw Bars and Transition
+        // ---------------------------------------------------
+
+        // Nest data: Group by Approach
+        const nestedData = d3.group(data, d => d.Approach);
+
+        // Bind outer data: Each Approach (group)
+        const approachGroups = svg.selectAll(".approachGroup")
+            .data(nestedData)
+            .enter().append("g")
+                .attr("class", "approachGroup")
+                // Position the Approach group
+                .attr("transform", ([key, values]) => `translate(${x0(key)}, 0)`);
+
+        // Bind inner data: Each Dataset (bar within the group)
+        approachGroups.selectAll("rect")
+            .data(([key, values]) => values)
+            .enter().append("rect")
+                .attr("x", d => x1(d.Dataset))
+                .attr("width", x1.bandwidth())
+                .attr("fill", d => colorScale(d.Dataset))
+                
+                // Transition: Loading Animation
+                .attr("y", y(0)) 
+                .attr("height", 0) 
+                
+                // Final state
+                .transition()
+                .duration(1000) // 1 second animation
+                .delay((d, i) => i * 50 + x0(d.Approach) * 0.1) // Staggered delay
+                .attr("y", d => y(d.Std_Acc)) 
+                .attr("height", d => height - y(d.Std_Acc)); 
+
+        // ---------------------------------------------------
+        // 5. Interaction: Tooltip
+        // ---------------------------------------------------
+
+        // Select all bars to add event listeners
+        svg.selectAll("rect")
+            .on("mouseover", function(event, d) {
+                
+                // Interaction: Highlight bar
+                d3.select(this)
+                    .attr("stroke", "#000")
+                    .attr("stroke-width", 2)
+                    .attr("opacity", 0.8);
+                
+                // Interaction: Show Tooltip
+                tooltip.transition()
+                    .duration(200)
+                    .style("opacity", 1);
+                    
+                tooltip.html(`
+                    <strong>Approach:</strong> ${d.Approach}<br>
+                    <strong>Dataset:</strong> ${d.Dataset}<br>
+                    <strong>Std Acc:</strong> ${d.Std_Acc.toFixed(2)}%
+                `)
+                .style("left", (event.pageX + 15) + "px")
+                .style("top", (event.pageY - 30) + "px");
+            })
+            .on("mousemove", function(event) {
+                // Update Tooltip position on mouse move
+                tooltip.style("left", (event.pageX + 15) + "px")
+                       .style("top", (event.pageY - 30) + "px");
+            })
+            .on("mouseout", function(d) {
+                // Interaction: Hide Tooltip and unhighlight
+                d3.select(this)
+                    .attr("stroke", "none")
+                    .attr("opacity", 1);
+                    
+                tooltip.transition()
+                    .duration(500)
+                    .style("opacity", 0);
+            });
+
+        // ---------------------------------------------------
+        // 6. Draw Legend
+        // ---------------------------------------------------
+
+        const legend = svg.append("g")
+            .attr("class", "legend")
+            .attr("transform", `translate(${width + 20}, 0)`); 
+
+        datasets.forEach((d, i) => {
+            const legendRow = legend.append("g")
+                .attr("transform", `translate(0, ${i * 20})`);
+
+            legendRow.append("rect")
+                .attr("width", 10)
+                .attr("height", 10)
+                .attr("fill", colorScale(d));
+
+            legendRow.append("text")
+                .attr("x", 15)
+                .attr("y", 9)
+                .attr("text-anchor", "start")
+                .style("font-size", "12px")
+                .text(d);
+        });
+    
+    </script>
+</body>
+</html>
